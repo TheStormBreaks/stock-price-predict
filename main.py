@@ -3,19 +3,19 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
-import streamlit as st
 
 # Fetching the stock data from yfinance API
 ticker = 'GOOG'  # Company name
-start_date = '2020-01-01'
+start_date = '2023-01-01'
 end_date = '2024-01-01'
 
 stock_data = yf.download(ticker, start=start_date, end=end_date)
-stock_data.to_csv('stock_data.csv')
+print(stock_data.head())  # Debug: Check if data is loaded properly
 
 # Feature Engineering
 stock_data['Lag_1'] = stock_data['Close'].shift(1)
@@ -24,18 +24,21 @@ stock_data['MA_30'] = stock_data['Close'].rolling(window=30).mean()  # 30-day mo
 stock_data['Return'] = stock_data['Close'].pct_change()  # Daily returns
 stock_data.dropna(inplace=True)
 
+# Check the shape of the data after preprocessing
+print(stock_data.shape)  # Debug: Check if data is valid after preprocessing
+
 # Splitting data into features (X) and target (Y)
 X = stock_data[['Lag_1', 'MA_7', 'MA_30', 'Return']].values
 Y = stock_data['Close'].values
 
 # Time-series split for cross-validation
-tscv = TimeSeriesSplit(n_splits=5)
+tscv = TimeSeriesSplit(n_splits=3)  # Reduced number of splits for smaller datasets
 for train_index, test_index in tscv.split(X):
+    print(f"Train indices: {train_index}, Test indices: {test_index}")  # Debug: Check splits
     X_train, X_test = X[train_index], X[test_index]
     Y_train, Y_test = Y[train_index], Y[test_index]
 
     # Linear Regression
-    from sklearn.linear_model import LinearRegression
     model_lr = LinearRegression()
     model_lr.fit(X_train, Y_train)
     predictions_lr = model_lr.predict(X_test)
@@ -106,20 +109,3 @@ plt.title(f'{ticker} Stock Price Prediction (LSTM)')
 plt.xlabel('Time')
 plt.ylabel('Price')
 plt.show()
-
-# Streamlit App
-st.title('Stock Price Prediction App')
-st.write('Predicting stock prices using Linear Regression, Random Forest, and LSTM.')
-
-# Display data
-st.subheader('Stock Data')
-st.write(stock_data)
-
-# Display model performance
-st.subheader('Model Performance')
-st.write(f"Linear Regression - MAE: {mae_lr}, MSE: {mse_lr}, R-squared: {r2_lr}")
-st.write(f"Random Forest - MAE: {mae_rf}, MSE: {mse_rf}, R-squared: {r2_rf}")
-
-# Display plots
-st.subheader('Predictions vs Actual Prices')
-st.pyplot(plt)
