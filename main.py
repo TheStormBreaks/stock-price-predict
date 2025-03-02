@@ -14,7 +14,14 @@ ticker = 'GOOG'  # Company name
 start_date = '2023-01-01'
 end_date = '2024-01-01'
 
-stock_data = yf.download(ticker, start=start_date, end=end_date)
+try:
+    stock_data = yf.download(ticker, start=start_date, end=end_date)
+    if stock_data.empty:
+        raise ValueError(f"No data fetched for ticker {ticker}. Please check the ticker symbol and try again.")
+except Exception as e:
+    print(f"Error fetching data: {e}")
+    exit()
+
 print(stock_data.head())  # Debug: Check if data is loaded properly
 
 # Feature Engineering
@@ -62,14 +69,16 @@ for train_index, test_index in tscv.split(X):
 
     # Plot actual vs predicted prices
     plt.figure(figsize=(10, 6))
-    plt.plot(Y_test, label='Actual Prices')
-    plt.plot(predictions_lr, label='Linear Regression Predictions')
-    plt.plot(predictions_rf, label='Random Forest Predictions')
+    plt.plot(Y_test, label='Actual Prices', color='blue')
+    plt.plot(predictions_lr, label='Linear Regression Predictions', color='orange')
+    plt.plot(predictions_rf, label='Random Forest Predictions', color='green')
     plt.legend()
-    plt.title(f'{ticker} Stock Price Prediction')
+    plt.title(f'{ticker} Stock Price Prediction (Time-Series Split {tscv.get_n_splits()})\n'
+              f'Linear Regression (MAE: {mae_lr:.2f}, MSE: {mse_lr:.2f}, R²: {r2_lr:.2f})\n'
+              f'Random Forest (MAE: {mae_rf:.2f}, MSE: {mse_rf:.2f}, R²: {r2_rf:.2f})')
     plt.xlabel('Time')
     plt.ylabel('Price')
-    plt.show()
+    plt.show(block=False)  # Non-blocking plot
 
 # LSTM Model for Time-Series Forecasting
 def create_lstm_model(input_shape):
@@ -102,10 +111,14 @@ predictions_lstm = model_lstm.predict(X_lstm)
 
 # Plot LSTM predictions
 plt.figure(figsize=(10, 6))
-plt.plot(Y_lstm, label='Actual Prices')
-plt.plot(predictions_lstm, label='LSTM Predictions')
+plt.plot(Y_lstm, label='Actual Prices', color='blue')
+plt.plot(predictions_lstm, label='LSTM Predictions', color='red')
 plt.legend()
-plt.title(f'{ticker} Stock Price Prediction (LSTM)')
+plt.title(f'{ticker} Stock Price Prediction (LSTM Model)\n'
+          f'Time Steps: {time_step}, Epochs: 20, Batch Size: 32')
 plt.xlabel('Time')
 plt.ylabel('Price')
+plt.show(block=False)  # Non-blocking plot
+
+# Show all plots at once
 plt.show()
