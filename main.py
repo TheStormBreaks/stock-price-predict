@@ -2,88 +2,105 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import TimeSeriesSplit, GridSearchCV, RandomizedSearchCV
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, VotingRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
+from xgboost import XGBRegressor
+import logging
 
-# Fetching the stock data from yfinance API
-ticker = 'GOOG'  # Company name
-start_date = '2023-01-01'
-end_date = '2024-01-01'
+# Constants
+TICKER = 'GOOG'  # Stock ticker symbol
+START_DATE = '2023-01-01'  # Start date for fetching data
+END_DATE = '2024-01-01'  # End date for fetching data
+TIME_STEP = 60  # Time step for LSTM (number of past days to consider)
+EPOCHS = 50  # Number of epochs for LSTM training
+BATCH_SIZE = 32  # Batch size for LSTM training
+N_SPLITS = 5  # Number of splits for time-series cross-validation
 
-try:
-    stock_data = yf.download(ticker, start=start_date, end=end_date)
-    if stock_data.empty:
-        raise ValueError(f"No data fetched for ticker {ticker}. Please check the ticker symbol and try again.")
-except Exception as e:
-    print(f"Error fetching data: {e}")
-    exit()
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-print(stock_data.head())  # Debug: Check if data is loaded properly
+# Fetch stock data
+def fetch_stock_data(ticker, start_date, end_date):
+    """
+    Fetch stock data using yfinance API.
+    """
+    try:
+        stock_data = yf.download(ticker, start=start_date, end=end_date)
+        if stock_data.empty:
+            raise ValueError(f"No data fetched for ticker {ticker}. Please check the ticker symbol and try again.")
+        return stock_data
+    except Exception as e:
+        logging.error(f"Error fetching data: {e}")
+        exit()
 
-# Feature Engineering
-stock_data['Lag_1'] = stock_data['Close'].shift(1)
-stock_data['MA_7'] = stock_data['Close'].rolling(window=7).mean()  # 7-day moving average
-stock_data['MA_30'] = stock_data['Close'].rolling(window=30).mean()  # 30-day moving average
-stock_data['Return'] = stock_data['Close'].pct_change()  # Daily returns
-stock_data.dropna(inplace=True)
+# Preprocess data
+def preprocess_data(stock_data):
+    """
+    Preprocess stock data by adding features like lagged values, moving averages, and returns.
+    """
+    stock_data['Lag_1'] = stock_data['Close'].shift(1)  # Lagged close price (1 day)
+    stock_data['MA_7'] = stock_data['Close'].rolling(window=7).mean()  # 7-day moving average
+    stock_data['MA_30'] = stock_data['Close'].rolling(window=30).mean()  # 30-day moving average
+    stock_data['Return'] = stock_data['Close'].pct_change()  # Daily returns
+    stock_data.dropna(inplace=True)  # Drop rows with missing values
+    return stock_data
 
-# Check the shape of the data after preprocessing
-print(stock_data.shape)  # Debug: Check if data is valid after preprocessing
+# Evaluate model
+def evaluate_model(model, X_test, Y_test, model_name):
+    """
+    Evaluate the model using MAE, RMSE, R², and MAPE metrics.
+    """
+    predictions = model.predict(X_test)
+    mae = mean_absolute_error(Y_test, predictions)
+    mse = mean_squared_error(Y_test, predictions)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(Y_test, predictions)
+    mape = mean_absolute_percentage_error(Y_test, predictions)
+    logging.info(f"{model_name} - MAE: {mae:.2f}, RMSE: {rmse:.2f}, R²: {r2:.2f}, MAPE: {mape:.2f}")
+    return predictions, mae, rmse, r2, mape
 
-# Splitting data into features (X) and target (Y)
-X = stock_data[['Lag_1', 'MA_7', 'MA_30', 'Return']].values
-Y = stock_data['Close'].values
+# Hyperparameter tuning for Random Forest
+def tune_random_forest(X_train, Y_train):
+    """
+    Perform hyperparameter tuning for Random Forest using GridSearchCV.
+    """
+    param_grid = {
+        'n_estimators': [50, 100, 200],
+        'max_depth': [None, 10, 20],
+        'min_samples_split': [2, 5, 10]
+    }
+    model = RandomForestRegressor(random_state=42)
+    grid_search = GridSearchCV(model, param_grid, cv=3, scoring='neg_mean_squared_error', n_jobs=-1)
+    grid_search.fit(X_train, Y_train)
+    logging.info(f"Best parameters for Random Forest: {grid_search.best_params_}")
+    return grid_search.best_estimator_
 
-# Time-series split for cross-validation
-tscv = TimeSeriesSplit(n_splits=3)  # Reduced number of splits for smaller datasets
-for fold, (train_index, test_index) in enumerate(tscv.split(X)):
-    print(f"Train indices: {train_index}, Test indices: {test_index}")  # Debug: Check splits
-    X_train, X_test = X[train_index], X[test_index]
-    Y_train, Y_test = Y[train_index], Y[test_index]
+# Hyperparameter tuning for XGBoost
+def tune_xgboost(X_train, Y_train):
+    """
+    Perform hyperparameter tuning for XGBoost using RandomizedSearchCV.
+    """
+    param_grid = {
+        'n_estimators': [50, 100, 200],
+        'max_depth': [3, 6, 9],
+        'learning_rate': [0.01, 0.1, 0.2]
+    }
+    model = XGBRegressor(random_state=42)
+    grid_search = RandomizedSearchCV(model, param_grid, cv=3, scoring='neg_mean_squared_error', n_jobs=-1, n_iter=10)
+    grid_search.fit(X_train, Y_train)
+    logging.info(f"Best parameters for XGBoost: {grid_search.best_params_}")
+    return grid_search.best_estimator_
 
-    # Linear Regression
-    model_lr = LinearRegression()
-    model_lr.fit(X_train, Y_train)
-    predictions_lr = model_lr.predict(X_test)
-
-    # Random Forest Regressor
-    model_rf = RandomForestRegressor(n_estimators=100, random_state=42)
-    model_rf.fit(X_train, Y_train)
-    predictions_rf = model_rf.predict(X_test)
-
-    # Evaluate models
-    mae_lr = mean_absolute_error(Y_test, predictions_lr)
-    mse_lr = mean_squared_error(Y_test, predictions_lr)
-    r2_lr = r2_score(Y_test, predictions_lr)
-
-    mae_rf = mean_absolute_error(Y_test, predictions_rf)
-    mse_rf = mean_squared_error(Y_test, predictions_rf)
-    r2_rf = r2_score(Y_test, predictions_rf)
-
-    print(f"Linear Regression - MAE: {mae_lr}, MSE: {mse_lr}, R-squared: {r2_lr}")
-    print(f"Random Forest - MAE: {mae_rf}, MSE: {mse_rf}, R-squared: {r2_rf}")
-
-    # Plot actual vs predicted prices
-    plt.figure(figsize=(10, 6))
-    plt.plot(Y_test, label='Actual Prices', color='blue')
-    plt.plot(predictions_lr, label='Linear Regression Predictions', color='orange')
-    plt.plot(predictions_rf, label='Random Forest Predictions', color='green')
-    plt.legend()
-    plt.title(f'{ticker} Stock Price Prediction (Time-Series Split {fold + 1})\n'
-              f'Test Set: {stock_data.index[test_index[0]].date()} to {stock_data.index[test_index[-1]].date()} (Fold {fold + 1})\n'
-              f'Linear Regression (MAE: {mae_lr:.2f}, MSE: {mse_lr:.2f}, R²: {r2_lr:.2f})\n'
-              f'Random Forest (MAE: {mae_rf:.2f}, MSE: {mse_rf:.2f}, R²: {r2_rf:.2f})')
-    plt.xlabel('Time')
-    plt.ylabel('Price')
-    plt.show(block=False)  # Non-blocking plot
-
-# LSTM Model for Time-Series Forecasting
+# Create LSTM model
 def create_lstm_model(input_shape):
+    """
+    Create an LSTM model for time-series forecasting.
+    """
     model = Sequential()
     model.add(LSTM(50, return_sequences=True, input_shape=input_shape))
     model.add(LSTM(50, return_sequences=False))
@@ -92,44 +109,120 @@ def create_lstm_model(input_shape):
     model.compile(optimizer='adam', loss='mean_squared_error')
     return model
 
-# Prepare data for LSTM
+# Prepare dataset for LSTM
 def create_dataset(data, time_step=1):
+    """
+    Prepare dataset for LSTM by creating sequences of past time steps.
+    """
     X, Y = [], []
     for i in range(len(data) - time_step - 1):
-        X.append(data[i:(i + time_step), 0])  # Use only the 'Close' price for LSTM
-        Y.append(data[i + time_step, 0])      # Target is the next day's 'Close' price
+        X.append(data[i:(i + time_step), 0])  # Use past 'time_step' days as input
+        Y.append(data[i + time_step, 0])  # Use the next day's value as target
     return np.array(X), np.array(Y)
 
-# Normalize the data (LSTM works better with normalized data)
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_data = scaler.fit_transform(stock_data[['Close']].values)
+# Plot results using Matplotlib
+def plot_results(Y_test, predictions_lr, predictions_rf, predictions_xgb, predictions_ensemble, fold):
+    """
+    Plot actual vs predicted prices for a single fold.
+    """
+    plt.figure(figsize=(10, 6))
+    plt.plot(Y_test, label='Actual Prices', color='blue', linewidth=2)
+    plt.plot(predictions_lr, label='Linear Regression', color='orange', linestyle='--')
+    plt.plot(predictions_rf, label='Random Forest', color='green', linestyle='-.')
+    plt.plot(predictions_xgb, label='XGBoost', color='red', linestyle=':')
+    plt.plot(predictions_ensemble, label='Ensemble', color='purple', linestyle='-')
+    plt.title(f'{TICKER} Stock Price Prediction (Fold {fold + 1})')
+    plt.xlabel('Time')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.grid(True)
 
-# Create LSTM dataset
-time_step = 60  # Use past 60 days to predict the next day
-X_lstm, Y_lstm = create_dataset(scaled_data, time_step)
-X_lstm = X_lstm.reshape(X_lstm.shape[0], X_lstm.shape[1], 1)
+# Main function
+def main():
+    # Fetch and preprocess data
+    stock_data = fetch_stock_data(TICKER, START_DATE, END_DATE)
+    logging.info(stock_data.head())
+    stock_data = preprocess_data(stock_data)
+    logging.info(stock_data.shape)
 
-# Train LSTM model
-model_lstm = create_lstm_model((X_lstm.shape[1], 1))
-model_lstm.fit(X_lstm, Y_lstm, epochs=50, batch_size=32, verbose=1)  # Increased epochs
+    # Split data into features and target
+    X = stock_data[['Lag_1', 'MA_7', 'MA_30', 'Return']].values
+    Y = stock_data['Close'].values
 
-# Predict using LSTM
-predictions_lstm = model_lstm.predict(X_lstm)
+    # Time-series cross-validation
+    tscv = TimeSeriesSplit(n_splits=N_SPLITS)
+    results = []
 
-# Inverse transform predictions to original scale
-predictions_lstm = scaler.inverse_transform(predictions_lstm)
-Y_lstm_original = scaler.inverse_transform(Y_lstm.reshape(-1, 1))
+    # Create a list to store plot figures
+    plot_figures = []
 
-# Plot LSTM predictions
-plt.figure(figsize=(10, 6))
-plt.plot(Y_lstm_original, label='Actual Prices', color='blue')
-plt.plot(predictions_lstm, label='LSTM Predictions', color='red')
-plt.legend()
-plt.title(f'{ticker} Stock Price Prediction (LSTM Model)\n'
-          f'Time Steps: {time_step}, Epochs: 50, Batch Size: 32')
-plt.xlabel('Time')
-plt.ylabel('Price')
-plt.show(block=False)
+    for fold, (train_index, test_index) in enumerate(tscv.split(X)):
+        logging.info(f"Fold {fold + 1}: Train indices: {train_index}, Test indices: {test_index}")
+        X_train, X_test = X[train_index], X[test_index]
+        Y_train, Y_test = Y[train_index], Y[test_index]
 
-# Show all plots at once
-plt.show()
+        # Linear Regression
+        model_lr = LinearRegression()
+        model_lr.fit(X_train, Y_train)
+        predictions_lr, mae_lr, rmse_lr, r2_lr, mape_lr = evaluate_model(model_lr, X_test, Y_test, "Linear Regression")
+
+        # Random Forest with hyperparameter tuning
+        model_rf = tune_random_forest(X_train, Y_train)
+        predictions_rf, mae_rf, rmse_rf, r2_rf, mape_rf = evaluate_model(model_rf, X_test, Y_test, "Random Forest")
+
+        # XGBoost with hyperparameter tuning
+        model_xgb = tune_xgboost(X_train, Y_train)
+        predictions_xgb, mae_xgb, rmse_xgb, r2_xgb, mape_xgb = evaluate_model(model_xgb, X_test, Y_test, "XGBoost")
+
+        # Ensemble model (Voting Regressor)
+        ensemble_model = VotingRegressor([
+            ('lr', model_lr),
+            ('rf', model_rf),
+            ('xgb', model_xgb)
+        ])
+        ensemble_model.fit(X_train, Y_train)
+        predictions_ensemble, mae_ensemble, rmse_ensemble, r2_ensemble, mape_ensemble = evaluate_model(ensemble_model, X_test, Y_test, "Ensemble")
+
+        # Store results
+        results.append({
+            'fold': fold + 1,
+            'Linear Regression': (mae_lr, rmse_lr, r2_lr, mape_lr),
+            'Random Forest': (mae_rf, rmse_rf, r2_rf, mape_rf),
+            'XGBoost': (mae_xgb, rmse_xgb, r2_xgb, mape_xgb),
+            'Ensemble': (mae_ensemble, rmse_ensemble, r2_ensemble, mape_ensemble)
+        })
+
+        # Create a new figure for each fold
+        plot_results(Y_test, predictions_lr, predictions_rf, predictions_xgb, predictions_ensemble, fold)
+        plot_figures.append(plt.gcf())  # Store the current figure
+
+    # LSTM Model
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(stock_data[['Close']].values)
+
+    X_lstm, Y_lstm = create_dataset(scaled_data, TIME_STEP)
+    X_lstm = X_lstm.reshape(X_lstm.shape[0], X_lstm.shape[1], 1)
+
+    model_lstm = create_lstm_model((X_lstm.shape[1], 1))
+    model_lstm.fit(X_lstm, Y_lstm, epochs=EPOCHS, batch_size=BATCH_SIZE, verbose=1)
+
+    predictions_lstm = model_lstm.predict(X_lstm)
+    predictions_lstm = scaler.inverse_transform(predictions_lstm)
+    Y_lstm_original = scaler.inverse_transform(Y_lstm.reshape(-1, 1))
+
+    # Plot LSTM results
+    plt.figure(figsize=(10, 6))
+    plt.plot(Y_lstm_original, label='Actual Prices', color='blue', linewidth=2)
+    plt.plot(predictions_lstm, label='LSTM Predictions', color='red', linestyle='--')
+    plt.title(f'{TICKER} Stock Price Prediction (LSTM Model)')
+    plt.xlabel('Time')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.grid(True)
+    plot_figures.append(plt.gcf())  # Store the LSTM figure
+
+    # Show all plots at once
+    plt.show()
+
+if __name__ == "__main__":
+    main()
