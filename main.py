@@ -6,6 +6,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 
@@ -40,7 +41,7 @@ Y = stock_data['Close'].values
 
 # Time-series split for cross-validation
 tscv = TimeSeriesSplit(n_splits=3)  # Reduced number of splits for smaller datasets
-for train_index, test_index in tscv.split(X):
+for fold, (train_index, test_index) in enumerate(tscv.split(X)):
     print(f"Train indices: {train_index}, Test indices: {test_index}")  # Debug: Check splits
     X_train, X_test = X[train_index], X[test_index]
     Y_train, Y_test = Y[train_index], Y[test_index]
@@ -73,7 +74,8 @@ for train_index, test_index in tscv.split(X):
     plt.plot(predictions_lr, label='Linear Regression Predictions', color='orange')
     plt.plot(predictions_rf, label='Random Forest Predictions', color='green')
     plt.legend()
-    plt.title(f'{ticker} Stock Price Prediction (Time-Series Split {tscv.get_n_splits()})\n'
+    plt.title(f'{ticker} Stock Price Prediction (Time-Series Split {fold + 1})\n'
+              f'Test Set: {stock_data.index[test_index[0]].date()} to {stock_data.index[test_index[-1]].date()} (Fold {fold + 1})\n'
               f'Linear Regression (MAE: {mae_lr:.2f}, MSE: {mse_lr:.2f}, R²: {r2_lr:.2f})\n'
               f'Random Forest (MAE: {mae_rf:.2f}, MSE: {mse_rf:.2f}, R²: {r2_rf:.2f})')
     plt.xlabel('Time')
@@ -94,31 +96,40 @@ def create_lstm_model(input_shape):
 def create_dataset(data, time_step=1):
     X, Y = [], []
     for i in range(len(data) - time_step - 1):
-        X.append(data[i:(i + time_step), 0])
-        Y.append(data[i + time_step, 0])
+        X.append(data[i:(i + time_step), 0])  # Use only the 'Close' price for LSTM
+        Y.append(data[i + time_step, 0])      # Target is the next day's 'Close' price
     return np.array(X), np.array(Y)
 
+# Normalize the data (LSTM works better with normalized data)
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(stock_data[['Close']].values)
+
+# Create LSTM dataset
 time_step = 60  # Use past 60 days to predict the next day
-X_lstm, Y_lstm = create_dataset(X, time_step)
+X_lstm, Y_lstm = create_dataset(scaled_data, time_step)
 X_lstm = X_lstm.reshape(X_lstm.shape[0], X_lstm.shape[1], 1)
 
 # Train LSTM model
 model_lstm = create_lstm_model((X_lstm.shape[1], 1))
-model_lstm.fit(X_lstm, Y_lstm, epochs=20, batch_size=32, verbose=1)
+model_lstm.fit(X_lstm, Y_lstm, epochs=50, batch_size=32, verbose=1)  # Increased epochs
 
 # Predict using LSTM
 predictions_lstm = model_lstm.predict(X_lstm)
 
+# Inverse transform predictions to original scale
+predictions_lstm = scaler.inverse_transform(predictions_lstm)
+Y_lstm_original = scaler.inverse_transform(Y_lstm.reshape(-1, 1))
+
 # Plot LSTM predictions
 plt.figure(figsize=(10, 6))
-plt.plot(Y_lstm, label='Actual Prices', color='blue')
+plt.plot(Y_lstm_original, label='Actual Prices', color='blue')
 plt.plot(predictions_lstm, label='LSTM Predictions', color='red')
 plt.legend()
 plt.title(f'{ticker} Stock Price Prediction (LSTM Model)\n'
-          f'Time Steps: {time_step}, Epochs: 20, Batch Size: 32')
+          f'Time Steps: {time_step}, Epochs: 50, Batch Size: 32')
 plt.xlabel('Time')
 plt.ylabel('Price')
-plt.show(block=False)  # Non-blocking plot
+plt.show(block=False)
 
 # Show all plots at once
 plt.show()
