@@ -13,22 +13,19 @@ from xgboost import XGBRegressor
 import logging
 
 # Constants
-TICKER = 'GOOG'  # Stock ticker symbol
-START_DATE = '2023-01-01'  # Start date for fetching data
-END_DATE = '2024-01-01'  # End date for fetching data
-TIME_STEP = 60  # Time step for LSTM (number of past days to consider)
-EPOCHS = 50  # Number of epochs for LSTM training
-BATCH_SIZE = 32  # Batch size for LSTM training
-N_SPLITS = 5  # Number of splits for time-series cross-validation
+TICKER = 'GOOG' 
+START_DATE = '2023-01-01'
+END_DATE = '2024-01-01'
+TIME_STEP = 60 
+EPOCHS = 50  
+BATCH_SIZE = 32
+N_SPLITS = 5 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Fetch stock data
 def fetch_stock_data(ticker, start_date, end_date):
-    """
-    Fetch stock data using yfinance API.
-    """
     try:
         stock_data = yf.download(ticker, start=start_date, end=end_date)
         if stock_data.empty:
@@ -40,9 +37,6 @@ def fetch_stock_data(ticker, start_date, end_date):
 
 # Preprocess data
 def preprocess_data(stock_data):
-    """
-    Preprocess stock data by adding features like lagged values, moving averages, and returns.
-    """
     stock_data['Lag_1'] = stock_data['Close'].shift(1)  # Lagged close price (1 day)
     stock_data['MA_7'] = stock_data['Close'].rolling(window=7).mean()  # 7-day moving average
     stock_data['MA_30'] = stock_data['Close'].rolling(window=30).mean()  # 30-day moving average
@@ -52,9 +46,6 @@ def preprocess_data(stock_data):
 
 # Evaluate model
 def evaluate_model(model, X_test, Y_test, model_name):
-    """
-    Evaluate the model using MAE, RMSE, R², and MAPE metrics.
-    """
     predictions = model.predict(X_test)
     mae = mean_absolute_error(Y_test, predictions)
     mse = mean_squared_error(Y_test, predictions)
@@ -66,9 +57,6 @@ def evaluate_model(model, X_test, Y_test, model_name):
 
 # Hyperparameter tuning for Random Forest
 def tune_random_forest(X_train, Y_train):
-    """
-    Perform hyperparameter tuning for Random Forest using GridSearchCV.
-    """
     param_grid = {
         'n_estimators': [50, 100, 200],
         'max_depth': [None, 10, 20],
@@ -82,9 +70,6 @@ def tune_random_forest(X_train, Y_train):
 
 # Hyperparameter tuning for XGBoost
 def tune_xgboost(X_train, Y_train):
-    """
-    Perform hyperparameter tuning for XGBoost using RandomizedSearchCV.
-    """
     param_grid = {
         'n_estimators': [50, 100, 200],
         'max_depth': [3, 6, 9],
@@ -98,9 +83,6 @@ def tune_xgboost(X_train, Y_train):
 
 # Create LSTM model
 def create_lstm_model(input_shape):
-    """
-    Create an LSTM model for time-series forecasting.
-    """
     model = Sequential()
     model.add(LSTM(50, return_sequences=True, input_shape=input_shape))
     model.add(LSTM(50, return_sequences=False))
@@ -111,9 +93,6 @@ def create_lstm_model(input_shape):
 
 # Prepare dataset for LSTM
 def create_dataset(data, time_step=1):
-    """
-    Prepare dataset for LSTM by creating sequences of past time steps.
-    """
     X, Y = [], []
     for i in range(len(data) - time_step - 1):
         X.append(data[i:(i + time_step), 0])  # Use past 'time_step' days as input
@@ -122,9 +101,6 @@ def create_dataset(data, time_step=1):
 
 # Plot results using Matplotlib
 def plot_results(Y_test, predictions_lr, predictions_rf, predictions_xgb, predictions_ensemble, fold):
-    """
-    Plot actual vs predicted prices for a single fold.
-    """
     plt.figure(figsize=(10, 6))
     plt.plot(Y_test, label='Actual Prices', color='blue', linewidth=2)
     plt.plot(predictions_lr, label='Linear Regression', color='orange', linestyle='--')
@@ -137,7 +113,6 @@ def plot_results(Y_test, predictions_lr, predictions_rf, predictions_xgb, predic
     plt.legend()
     plt.grid(True)
 
-# Main function
 def main():
     # Fetch and preprocess data
     stock_data = fetch_stock_data(TICKER, START_DATE, END_DATE)
@@ -153,7 +128,6 @@ def main():
     tscv = TimeSeriesSplit(n_splits=N_SPLITS)
     results = []
 
-    # Create a list to store plot figures
     plot_figures = []
 
     for fold, (train_index, test_index) in enumerate(tscv.split(X)):
@@ -183,7 +157,7 @@ def main():
         ensemble_model.fit(X_train, Y_train)
         predictions_ensemble, mae_ensemble, rmse_ensemble, r2_ensemble, mape_ensemble = evaluate_model(ensemble_model, X_test, Y_test, "Ensemble")
 
-        # Store results
+      
         results.append({
             'fold': fold + 1,
             'Linear Regression': (mae_lr, rmse_lr, r2_lr, mape_lr),
@@ -192,9 +166,9 @@ def main():
             'Ensemble': (mae_ensemble, rmse_ensemble, r2_ensemble, mape_ensemble)
         })
 
-        # Create a new figure for each fold
+        
         plot_results(Y_test, predictions_lr, predictions_rf, predictions_xgb, predictions_ensemble, fold)
-        plot_figures.append(plt.gcf())  # Store the current figure
+        plot_figures.append(plt.gcf()) 
 
     # LSTM Model
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -219,9 +193,9 @@ def main():
     plt.ylabel('Price')
     plt.legend()
     plt.grid(True)
-    plot_figures.append(plt.gcf())  # Store the LSTM figure
+    plot_figures.append(plt.gcf())  
+   
 
-    # Show all plots at once
     plt.show()
 
 if __name__ == "__main__":
