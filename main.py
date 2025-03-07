@@ -12,7 +12,7 @@ from tensorflow.keras.layers import LSTM, Dense
 from xgboost import XGBRegressor
 import logging
 
-# Constants
+
 TICKER = 'GOOG' 
 START_DATE = '2023-01-01'
 END_DATE = '2024-01-01'
@@ -21,10 +21,10 @@ EPOCHS = 50
 BATCH_SIZE = 32
 N_SPLITS = 5 
 
-# Configure logging
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Fetch stock data
+
 def fetch_stock_data(ticker, start_date, end_date):
     try:
         stock_data = yf.download(ticker, start=start_date, end=end_date)
@@ -35,16 +35,15 @@ def fetch_stock_data(ticker, start_date, end_date):
         logging.error(f"Error fetching data: {e}")
         exit()
 
-# Preprocess data
 def preprocess_data(stock_data):
-    stock_data['Lag_1'] = stock_data['Close'].shift(1)  # Lagged close price (1 day)
-    stock_data['MA_7'] = stock_data['Close'].rolling(window=7).mean()  # 7-day moving average
-    stock_data['MA_30'] = stock_data['Close'].rolling(window=30).mean()  # 30-day moving average
-    stock_data['Return'] = stock_data['Close'].pct_change()  # Daily returns
-    stock_data.dropna(inplace=True)  # Drop rows with missing values
+    stock_data['Lag_1'] = stock_data['Close'].shift(1) 
+    stock_data['MA_7'] = stock_data['Close'].rolling(window=7).mean()  
+    stock_data['MA_30'] = stock_data['Close'].rolling(window=30).mean()
+    stock_data['Return'] = stock_data['Close'].pct_change() 
+    stock_data.dropna(inplace=True) 
     return stock_data
 
-# Evaluate model
+
 def evaluate_model(model, X_test, Y_test, model_name):
     predictions = model.predict(X_test)
     mae = mean_absolute_error(Y_test, predictions)
@@ -55,7 +54,7 @@ def evaluate_model(model, X_test, Y_test, model_name):
     logging.info(f"{model_name} - MAE: {mae:.2f}, RMSE: {rmse:.2f}, R²: {r2:.2f}, MAPE: {mape:.2f}")
     return predictions, mae, rmse, r2, mape
 
-# Hyperparameter tuning for Random Forest
+
 def tune_random_forest(X_train, Y_train):
     param_grid = {
         'n_estimators': [50, 100, 200],
@@ -68,7 +67,6 @@ def tune_random_forest(X_train, Y_train):
     logging.info(f"Best parameters for Random Forest: {grid_search.best_params_}")
     return grid_search.best_estimator_
 
-# Hyperparameter tuning for XGBoost
 def tune_xgboost(X_train, Y_train):
     param_grid = {
         'n_estimators': [50, 100, 200],
@@ -81,7 +79,7 @@ def tune_xgboost(X_train, Y_train):
     logging.info(f"Best parameters for XGBoost: {grid_search.best_params_}")
     return grid_search.best_estimator_
 
-# Create LSTM model
+
 def create_lstm_model(input_shape):
     model = Sequential()
     model.add(LSTM(50, return_sequences=True, input_shape=input_shape))
@@ -91,7 +89,6 @@ def create_lstm_model(input_shape):
     model.compile(optimizer='adam', loss='mean_squared_error')
     return model
 
-# Prepare dataset for LSTM
 def create_dataset(data, time_step=1):
     X, Y = [], []
     for i in range(len(data) - time_step - 1):
@@ -99,7 +96,6 @@ def create_dataset(data, time_step=1):
         Y.append(data[i + time_step, 0])  # Use the next day's value as target
     return np.array(X), np.array(Y)
 
-# Plot results using Matplotlib
 def plot_results(Y_test, predictions_lr, predictions_rf, predictions_xgb, predictions_ensemble, fold):
     plt.figure(figsize=(10, 6))
     plt.plot(Y_test, label='Actual Prices', color='blue', linewidth=2)
@@ -114,17 +110,17 @@ def plot_results(Y_test, predictions_lr, predictions_rf, predictions_xgb, predic
     plt.grid(True)
 
 def main():
-    # Fetch and preprocess data
+   
     stock_data = fetch_stock_data(TICKER, START_DATE, END_DATE)
     logging.info(stock_data.head())
     stock_data = preprocess_data(stock_data)
     logging.info(stock_data.shape)
 
-    # Split data into features and target
+  
     X = stock_data[['Lag_1', 'MA_7', 'MA_30', 'Return']].values
     Y = stock_data['Close'].values
 
-    # Time-series cross-validation
+   
     tscv = TimeSeriesSplit(n_splits=N_SPLITS)
     results = []
 
@@ -140,11 +136,11 @@ def main():
         model_lr.fit(X_train, Y_train)
         predictions_lr, mae_lr, rmse_lr, r2_lr, mape_lr = evaluate_model(model_lr, X_test, Y_test, "Linear Regression")
 
-        # Random Forest with hyperparameter tuning
+       
         model_rf = tune_random_forest(X_train, Y_train)
         predictions_rf, mae_rf, rmse_rf, r2_rf, mape_rf = evaluate_model(model_rf, X_test, Y_test, "Random Forest")
 
-        # XGBoost with hyperparameter tuning
+       
         model_xgb = tune_xgboost(X_train, Y_train)
         predictions_xgb, mae_xgb, rmse_xgb, r2_xgb, mape_xgb = evaluate_model(model_xgb, X_test, Y_test, "XGBoost")
 
